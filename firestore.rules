@@ -402,5 +402,11 @@ service cloud.firestore {
         isAdmin();
       allow delete: if false;
     }
+
+    // Collection 11: /email_logs/{logId}
+    match /email_logs/{logId} {
+      allow read, write: if isSignedIn() && isAdmin();
+    }
   }
 }
+

@@ -207,6 +207,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
   const [walletAccountTitle, setWalletAccountTitle] = useState('');
   const [wireReferenceNumber, setWireReferenceNumber] = useState('');
   const [checkoutErrorBanner, setCheckoutErrorBanner] = useState<string | null>(null);
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
 
   const [orderNotes, setOrderNotes] = useState('');
   const [confirmedOrderNumber, setConfirmedOrderNumber] = useState<string | null>(null);
@@ -217,9 +218,6 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
   const [trackingError, setTrackingError] = useState<string | null>(null);
   const [trackingOrderInput, setTrackingOrderInput] = useState('');
   const [trackingTokenInput, setTrackingTokenInput] = useState('');
-  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
-  const [selectedGmailOrder, setSelectedGmailOrder] = useState<Order | null>(null);
-  const [isGmailModalOpen, setIsGmailModalOpen] = useState(false);
   const [resendStatus, setResendStatus] = useState<string | null>(null);
   const [isResendingReceipt, setIsResendingReceipt] = useState(false);
 
@@ -263,12 +261,6 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
       }
     }
   }, []);
-
-  const openGmailReceiptModal = (order: Order) => {
-    setSelectedGmailOrder(order);
-    setIsGmailModalOpen(true);
-    setResendStatus(null);
-  };
 
   const handleResendReceipt = async (orderNumber: string, toEmail: string) => {
     setIsResendingReceipt(true);
@@ -2253,61 +2245,48 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                     </div>
                   </div>
 
-                  {/* Transactional Notification Card */}
-                  <div className="p-4 bg-sky-50/80 border border-sky-300 space-y-3">
+                  {/* Transactional Real Email Notice */}
+                  <div className="p-4 bg-emerald-50/80 border border-emerald-300 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 bg-red-600 text-white rounded flex items-center justify-center text-[10px] font-bold">
-                          M
-                        </div>
-                        <strong className="text-sky-950 text-xs">
-                          {isOrderPaid
-                            ? 'Gmail Notification: Apki Payment Received Ho Chuki Hai'
-                            : 'Order Recorded Notification: Order #' + confirmedOrderNumber}
+                        <Mail className="w-4 h-4 text-emerald-700" />
+                        <strong className="text-emerald-950 text-xs">
+                          Confirmation Email Dispatched
                         </strong>
                       </div>
-                      <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded ${isOrderPaid ? 'text-emerald-800 bg-emerald-100' : 'text-amber-800 bg-amber-100'}`}>
-                        {isOrderPaid ? '✓ Payment Confirmed' : '⏳ Awaiting Verification'}
+                      <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded ${isOrderPaid ? 'text-emerald-800 bg-emerald-100 border border-emerald-300' : 'text-amber-800 bg-amber-100 border border-amber-300'}`}>
+                        {isOrderPaid ? '✓ Payment Received' : '⏳ Awaiting Verification'}
                       </span>
                     </div>
-                    <div className="text-xs text-sky-900 space-y-1">
+                    <div className="text-xs text-emerald-900 space-y-1">
                       <div>
-                        <span className="text-sky-700">Recipient Email: </span>
+                        <span className="text-emerald-700">Recipient Email: </span>
                         <strong className="font-mono text-slate-900">{activeRecipientEmail}</strong>
                       </div>
                       <div>
-                        <span className="text-sky-700">Order Reference: </span>
+                        <span className="text-emerald-700">Order Reference: </span>
                         <span className="font-mono text-[11px] font-semibold text-slate-800">
                           Order #{confirmedOrderNumber} | {activeStoreName}
                         </span>
                       </div>
-                      <p className="text-[11px] text-sky-800 pt-1 leading-relaxed">
-                        {isOrderPaid
-                          ? `Customer ko Gmail confirmation receive ho chuki hai k apki payment receive ho chuki hai sath store ka name (${activeStoreName}) bhi message main bhej diya gaya hai.`
-                          : `Customer ko email notification bhej di gai hai k order darj ho chuka hai. Note: Payment verification hone aur store admin ke approve karne par final "Payment Received" confirmation update ho gi.`}
+                      <p className="text-[11px] text-emerald-800 pt-1 leading-relaxed">
+                        A real transactional email has been sent to your email inbox via Resend with complete order details and itemized invoice.
                       </p>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2.5 pt-1">
                       <button
                         type="button"
-                        onClick={() => openGmailReceiptModal(fallbackOrderForModal)}
-                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold flex items-center gap-2 cursor-pointer shadow-xs"
-                      >
-                        <Mail className="w-3.5 h-3.5" />
-                        Preview Email Notification
-                      </button>
-                      <button
-                        type="button"
                         disabled={isResendingReceipt}
                         onClick={() => handleResendReceipt(confirmedOrderNumber, activeRecipientEmail)}
-                        className="px-3 py-2 border border-sky-400 text-sky-900 hover:bg-sky-100 text-xs font-medium cursor-pointer"
+                        className="px-3.5 py-1.5 border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium cursor-pointer flex items-center gap-1.5 shadow-xs"
                       >
-                        {isResendingReceipt ? 'Resending...' : '↺ Resend to Gmail'}
+                        <Mail className="w-3.5 h-3.5" />
+                        {isResendingReceipt ? 'Sending...' : '↺ Resend Email'}
                       </button>
                     </div>
                     {resendStatus && (
-                      <div className="text-[11px] font-medium text-emerald-800 bg-emerald-50 p-2 border border-emerald-200">
+                      <div className="text-[11px] font-medium text-emerald-800 bg-emerald-100 p-2 border border-emerald-300 rounded">
                         {resendStatus}
                       </div>
                     )}
@@ -3707,14 +3686,9 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                               Tracking: <strong>{order.trackingNumber}</strong>
                             </div>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => openGmailReceiptModal(order)}
-                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer shadow-xs"
-                          >
-                            <Mail className="w-3.5 h-3.5" />
-                            View Received Gmail Receipt
-                          </button>
+                          <span className="text-[11px] text-[#575653] font-mono">
+                            Email updates sent to {order.customerEmail}
+                          </span>
                         </div>
                       </div>
 
@@ -4163,270 +4137,6 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
         </div>
       </footer>
 
-      {/* ========================================================================= */}
-      {/* 7. AUTHENTIC GMAIL TRANSACTIONAL RECEIPT PREVIEW MODAL */}
-      {/* Shows the exact Gmail received by customer with Store Name & Payment Confirmed */}
-      {/* ========================================================================= */}
-      {isGmailModalOpen && selectedGmailOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white w-full max-w-3xl max-h-[92vh] flex flex-col shadow-2xl border border-black/20 rounded-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            {/* Google / Gmail Window Top Bar */}
-            <div className="bg-[#F6F8FC] border-b border-[#E0E2EC] px-4 py-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {/* Google Gmail Brand Icon */}
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 bg-[#EA4335] text-white rounded flex items-center justify-center font-bold text-sm shadow-xs">
-                    M
-                  </div>
-                  <div>
-                    <span className="text-sm font-semibold text-[#1F1F1F] tracking-tight">Gmail</span>
-                    <span className="text-[11px] text-[#5E5E5E] ml-2 font-mono">Inbox · Message Preview</span>
-                  </div>
-                </div>
-                <span className="hidden sm:inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-semibold rounded-full">
-                  ✓ Verified Payment Receipt
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="p-1.5 text-[#444746] hover:bg-black/5 rounded cursor-pointer"
-                  title="Print Receipt"
-                >
-                  <Printer className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsGmailModalOpen(false)}
-                  className="p-1.5 text-[#444746] hover:bg-black/10 rounded cursor-pointer"
-                  title="Close Preview"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Email Subject Bar */}
-            <div className="px-6 py-4 bg-white border-b border-[#F0F0EE]">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold text-[#1F1F1F]">
-                  {selectedGmailOrder.paymentReceiptEmailSubject ||
-                    `Payment Received: Order #${selectedGmailOrder.orderNumber} | ${settings.storeName || 'Online Store'}`}
-                </h2>
-                <span className="px-2 py-0.5 bg-[#E8F0FE] text-[#1A73E8] text-[11px] font-medium rounded">
-                  Inbox
-                </span>
-              </div>
-
-              {/* Sender & Recipient Metadata */}
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-[#5E5E5E]">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-[#141413] text-[#FBFBF9] flex items-center justify-center font-serif font-bold text-xs">
-                    {(settings.storeName || 'A').slice(0, 1)}
-                  </div>
-                  <div>
-                    <div className="font-semibold text-[#1F1F1F]">
-                      {settings.storeName || 'Online Store'} Official{' '}
-                      <span className="font-normal text-[#5E5E5E]">
-                        &lt;orders@{(settings.storeName || 'store').toLowerCase().replace(/[^a-z0-9]/g, '')}.com&gt;
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-[#747775]">
-                      to: {selectedGmailOrder.customerEmail || 'customer@gmail.com'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-right text-[11px] font-mono text-[#747775]">
-                  <div>Security: TLS Encryption ✓</div>
-                  <div>Signed by: {(settings.storeName || 'store').toLowerCase().replace(/[^a-z0-9]/g, '')}.com</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Email Body Message Container */}
-            <div className="flex-1 overflow-y-auto p-6 bg-[#F8F9FA] space-y-4">
-              <div className="max-w-xl mx-auto bg-white border border-[#E0E2EC] shadow-sm rounded overflow-hidden">
-                {/* Official Store Receipt Header */}
-                <div className="bg-[#141413] text-[#FBFBF9] p-6 text-center">
-                  <div className="text-lg font-serif font-medium tracking-widest uppercase">
-                    {settings.storeName || 'Online Store'}
-                  </div>
-                  <div className="text-[10px] tracking-widest text-[#C5A059] uppercase mt-1">
-                    Official Transactional Receipt &amp; Payment Certificate
-                  </div>
-                </div>
-
-                {/* Dynamic Status Banner based on actual verification status */}
-                {selectedGmailOrder.paymentStatus === 'PAID' ? (
-                  <div className="bg-emerald-50 border-b-2 border-emerald-500 p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-7 h-7 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm shrink-0">
-                        ✓
-                      </div>
-                      <div>
-                        <strong className="text-emerald-950 text-sm block">
-                          Apki Payment Received Ho Chuki Hai!
-                        </strong>
-                        <span className="text-xs text-emerald-800">
-                          Payment verified and confirmed by Store Admin for Order #{selectedGmailOrder.orderNumber}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ) : selectedGmailOrder.paymentMethod === 'COD' ? (
-                  <div className="bg-blue-50 border-b-2 border-blue-500 p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-7 h-7 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm shrink-0">
-                        📦
-                      </div>
-                      <div>
-                        <strong className="text-blue-950 text-sm block">
-                          Cash on Delivery Order Registered
-                        </strong>
-                        <span className="text-xs text-blue-800">
-                          Order #{selectedGmailOrder.orderNumber} logged. Payment will be collected upon parcel handover.
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bg-amber-50 border-b-2 border-amber-500 p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-7 h-7 bg-amber-600 text-white rounded-full flex items-center justify-center font-bold text-sm shrink-0">
-                        ⏳
-                      </div>
-                      <div>
-                        <strong className="text-amber-950 text-sm block">
-                          Payment Awaiting Admin Verification
-                        </strong>
-                        <span className="text-xs text-amber-800">
-                          Order #{selectedGmailOrder.orderNumber} recorded. Submitted TID is pending store admin verification.
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Email Body Text */}
-                <div className="p-6 space-y-5 text-xs text-[#1F1F1F]">
-                  <p className="leading-relaxed">
-                    Assalam-o-Alaikum <strong>{selectedGmailOrder.customerName || 'Valued Client'}</strong>,
-                  </p>
-                  <p className="text-[#444746] leading-relaxed">
-                    {selectedGmailOrder.paymentStatus === 'PAID' ? (
-                      <>We are pleased to inform you that your payment has been received and verified by <strong>{settings.storeName || 'Online Store'}</strong> administration. Your order is confirmed and prioritized for fulfillment.</>
-                    ) : selectedGmailOrder.paymentMethod === 'COD' ? (
-                      <>Thank you for placing order <strong>#{selectedGmailOrder.orderNumber}</strong> via Cash on Delivery. The package is being prepared for dispatch, and full payment will be collected by the courier upon delivery.</>
-                    ) : (
-                      <>Thank you for placing order <strong>#{selectedGmailOrder.orderNumber}</strong>. You submitted a manual transfer with Transaction ID: <strong className="font-mono text-amber-900">{selectedGmailOrder.paymentReference || 'On Record'}</strong>. Our administration team is verifying the funds in our records. Once approved by an admin, the status will update to &quot;Payment Received&quot; and your order will be confirmed.</>
-                    )}
-                  </p>
-
-                  {/* Payment Details Table */}
-                  <div className="bg-[#FAF9F5] border border-[#EBE9DF] rounded p-4 space-y-2 text-xs font-mono">
-                    <div className="flex justify-between items-center pb-1.5 border-b border-black/[0.06]">
-                      <span className="text-[#747775]">Store Name:</span>
-                      <strong className="text-[#1F1F1F] font-bold">{settings.storeName || 'Online Store'}</strong>
-                    </div>
-                    <div className="flex justify-between items-center pb-1.5 border-b border-black/[0.06]">
-                      <span className="text-[#747775]">Order Reference:</span>
-                      <strong className="text-[#1F1F1F] font-semibold">{selectedGmailOrder.orderNumber}</strong>
-                    </div>
-                    <div className="flex justify-between items-center pb-1.5 border-b border-black/[0.06]">
-                      <span className="text-[#747775]">Payment Status:</span>
-                      <strong className={selectedGmailOrder.paymentStatus === 'PAID' ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
-                        {selectedGmailOrder.paymentStatus === 'PAID'
-                          ? 'PAID · VERIFIED BY ADMIN'
-                          : selectedGmailOrder.paymentMethod === 'COD'
-                          ? 'CASH ON DELIVERY (Pending Delivery)'
-                          : 'PENDING_VERIFICATION (Awaiting Admin Approval)'}
-                      </strong>
-                    </div>
-                    <div className="flex justify-between items-center pb-1.5 border-b border-black/[0.06]">
-                      <span className="text-[#747775]">Payment Method:</span>
-                      <span className="text-[#1F1F1F]">{selectedGmailOrder.paymentMethod}</span>
-                    </div>
-                    {selectedGmailOrder.paymentReference && (
-                      <div className="flex justify-between items-center pb-1.5 border-b border-black/[0.06]">
-                        <span className="text-[#747775]">Transaction ID (TID):</span>
-                        <span className="text-[#8C6D46] font-bold">{selectedGmailOrder.paymentReference}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center pb-1.5 border-b border-black/[0.06]">
-                      <span className="text-[#747775]">{selectedGmailOrder.paymentStatus === 'PAID' ? 'Total Amount Paid:' : 'Total Payable:'}</span>
-                      <strong className="text-[#1F1F1F] font-bold text-sm">
-                        PKR {Math.round(selectedGmailOrder.total * (settings.usdToPkrRate || 278.5)).toLocaleString()} (${selectedGmailOrder.total.toFixed(2)})
-                      </strong>
-                    </div>
-                    {selectedGmailOrder.district && (
-                      <div className="flex justify-between items-center pb-1.5 border-b border-black/[0.06]">
-                        <span className="text-[#747775]">District:</span>
-                        <strong className="text-[#1F1F1F] font-semibold">{selectedGmailOrder.district}</strong>
-                      </div>
-                    )}
-                    {selectedGmailOrder.tehsil && (
-                      <div className="flex justify-between items-center pb-1.5 border-b border-black/[0.06]">
-                        <span className="text-[#747775]">Tehsil:</span>
-                        <strong className="text-[#1F1F1F] font-semibold">{selectedGmailOrder.tehsil}</strong>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center">
-                      <span className="text-[#747775]">Delivery Address:</span>
-                      <span className="text-[#1F1F1F] text-right truncate max-w-[220px]">
-                        {selectedGmailOrder.shippingAddressSummary || 'On File'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Concierge Guarantee */}
-                  <div className="p-3.5 bg-[#FAF9F5] border-l-3 border-[#C5A059] text-[11px] text-[#444746] leading-relaxed">
-                    <strong>White-Glove Guarantee:</strong> Each piece undergoes precision inspection prior to sealed armored courier dispatch. You can inspect continuous status updates inside your Storefront Account.
-                  </div>
-                </div>
-
-                {/* Footer in Email */}
-                <div className="bg-[#F7F6F2] border-t border-[#E5E5E2] p-4 text-center text-[11px] text-[#747775]">
-                  <div>{settings.storeName || 'Online Store'} Support Desk</div>
-                  <div className="mt-0.5">Delivered to: {selectedGmailOrder.customerEmail}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Bottom Actions */}
-            <div className="bg-white border-t border-[#E0E2EC] px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
-              <div className="text-xs text-[#5E5E5E] flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                <span>Gmail Delivery Status: <strong className="text-[#1F1F1F]">Delivered to Inbox</strong></span>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  disabled={isResendingReceipt}
-                  onClick={() =>
-                    handleResendReceipt(
-                      selectedGmailOrder.orderNumber,
-                      selectedGmailOrder.customerEmail || 'customer@gmail.com'
-                    )
-                  }
-                  className="px-3.5 py-2 border border-black/20 text-xs font-medium hover:border-black cursor-pointer"
-                >
-                  {isResendingReceipt ? 'Re-sending...' : '↺ Resend Email'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsGmailModalOpen(false)}
-                  className="px-5 py-2 bg-[#141413] text-[#FBFBF9] text-xs font-medium cursor-pointer hover:bg-[#2A2A28]"
-                >
-                  Close Receipt
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ========================================================================= */}
       {/* 7.5. GUEST & MEMBER LIVE ORDER TRACKING MODAL */}

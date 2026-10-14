@@ -159,7 +159,7 @@ export interface OrderItem {
 export interface Order {
   id: string;
   orderNumber: string;
-  userId: string | null;
+  userId?: string | null;
   orderAccessToken?: string;
   items?: OrderItem[];
   customerName: string;
@@ -175,6 +175,8 @@ export interface Order {
   paymentVerifiedBy?: string;
   paymentVerifiedAt?: string;
   paymentVerificationNote?: string;
+  cancellationReason?: string;
+  cancelledAt?: string;
   subtotal?: number;
   discount?: number;
   tax?: number;

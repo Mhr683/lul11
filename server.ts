@@ -15,6 +15,13 @@ import { validateAIToolArgs } from './src/validation/validators';
 import { UserRole, Order, OrderItem, OrderStatus, PaymentStatus } from './src/types/store';
 import { ShippingCalculationService } from './src/services/shippingService';
 import { INITIAL_SETTINGS, INITIAL_PRODUCTS, INITIAL_CATEGORIES, INITIAL_COUPONS } from './src/data/seedData';
+import {
+  sendOrderPlacedCustomerEmail,
+  sendOrderPlacedOwnerEmail,
+  sendPaymentVerifiedEmail,
+  sendOrderShippedEmail,
+  sendOrderCancelledEmail,
+} from './src/services/serverEmailService';
 
 dotenv.config();
 
@@ -1842,6 +1849,57 @@ app.post('/api/admin/verify-payment', requireAdmin, async (req, res) => {
       updatedAt: now,
     });
 
+    // Send real transactional email via Resend (never breaks order or verification)
+    (async () => {
+      try {
+        let storeCfg: any = INITIAL_SETTINGS;
+        try {
+          const cfgDoc = await adminDb.collection('settings').doc('store_config').get();
+          if (cfgDoc.exists) storeCfg = cfgDoc.data();
+        } catch {}
+
+        const emailOrder: Order = {
+          ...(dbOrder as Order),
+          id: orderId,
+          orderNumber: dbOrder?.orderNumber || orderNumber || orderId,
+          customerEmail: effectiveCustomerEmail,
+          paymentStatus: nextPaymentStatus,
+          status: nextOrderStatus,
+          total: dbOrder?.total || 0,
+          currency: dbOrder?.currency || storeCfg?.currency || 'PKR',
+          customerName: dbOrder?.customerName,
+          paymentMethod: dbOrder?.paymentMethod,
+          paymentReference: dbOrder?.paymentReference,
+          shippingAddressSummary: dbOrder?.shippingAddressSummary,
+          items: dbOrder?.items || [],
+        };
+
+        const emailSettings = {
+          storeName: storeCfg?.storeName || 'Store',
+          supportEmail: storeCfg?.supportEmail,
+          currency: emailOrder.currency,
+        };
+
+        if (action === 'APPROVE') {
+          await sendPaymentVerifiedEmail(
+            adminDb,
+            emailOrder,
+            emailSettings,
+            verificationRecord.note
+          );
+        } else {
+          await sendOrderCancelledEmail(
+            adminDb,
+            emailOrder,
+            verificationRecord.note || 'Payment verification rejected',
+            emailSettings
+          );
+        }
+      } catch (mailErr) {
+        console.error('[VerifyPayment] Error triggering transactional email:', mailErr);
+      }
+    })().catch(() => {});
+
     res.json({
       success: true,
       orderId,
@@ -2320,6 +2378,39 @@ app.post('/api/orders/create', async (req, res) => {
       };
     }
 
+    // Send real transactional emails via Resend:
+    // 1. To Customer
+    // 2. To Store Owner
+    // If sending fails, it is logged in email_logs collection and never breaks the order.
+    if (result && result.order) {
+      (async () => {
+        let storeCfg: any = INITIAL_SETTINGS;
+        try {
+          const cfgDoc = await adminDb.collection('settings').doc('store_config').get();
+          if (cfgDoc.exists) storeCfg = cfgDoc.data();
+        } catch {}
+
+        const emailSettings = {
+          storeName: storeCfg?.storeName || 'Store',
+          supportEmail: storeCfg?.supportEmail,
+          contactEmail: storeCfg?.contactEmail,
+          currency: result.order.currency,
+        };
+
+        try {
+          await sendOrderPlacedCustomerEmail(adminDb, result.order, emailSettings);
+        } catch (custErr) {
+          console.error('[Order Placed Customer Email Error]:', custErr);
+        }
+
+        try {
+          await sendOrderPlacedOwnerEmail(adminDb, result.order, emailSettings);
+        } catch (ownerErr) {
+          console.error('[Order Placed Owner Email Error]:', ownerErr);
+        }
+      })().catch((err) => console.error('[Order Placed Email Async Exception]:', err));
+    }
+
     res.status(201).json({
       success: true,
       orderNumber: result.orderNumber,
@@ -2550,6 +2641,31 @@ app.post('/api/orders/cancel', async (req, res) => {
       saveLocalOrders(localOrders);
     }
 
+    // Send real transactional email for cancelled order to customer via Resend
+    // If sending fails, it is logged in email_logs and never breaks order cancellation
+    (async () => {
+      try {
+        let storeCfg: any = INITIAL_SETTINGS;
+        try {
+          const cfgDoc = await adminDb.collection('settings').doc('store_config').get();
+          if (cfgDoc.exists) storeCfg = cfgDoc.data();
+        } catch {}
+
+        await sendOrderCancelledEmail(
+          adminDb,
+          orderData,
+          reason || 'Cancelled upon customer request or payment verification failure.',
+          {
+            storeName: storeCfg?.storeName || 'Store',
+            supportEmail: storeCfg?.supportEmail,
+            currency: orderData.currency,
+          }
+        );
+      } catch (mailErr) {
+        console.error('[Order Cancelled Email Error]:', mailErr);
+      }
+    })().catch(() => {});
+
     res.json({
       success: true,
       orderNumber: orderData.orderNumber,
@@ -2558,6 +2674,154 @@ app.post('/api/orders/cancel', async (req, res) => {
   } catch (err: any) {
     console.error('Order cancellation error:', err);
     res.status(500).json({ error: err.message || 'Failed to cancel order.' });
+  }
+});
+
+// 6.4. POST /api/orders/update-status (Authoritative Status Transitions & Real Resend Notifications)
+app.post('/api/orders/update-status', async (req, res) => {
+  const { orderId, orderNumber, status, trackingNumber, carrier, reason } = req.body;
+  if (!orderId && !orderNumber) {
+    return res.status(400).json({ error: 'orderId or orderNumber is required.' });
+  }
+  if (!status) {
+    return res.status(400).json({ error: 'Status is required.' });
+  }
+
+  try {
+    let orderDocRef = orderId ? adminDb.collection('orders').doc(orderId) : null;
+    let orderSnap: FirebaseFirestore.DocumentSnapshot | null = null;
+
+    try {
+      orderSnap = orderDocRef ? await orderDocRef.get() : null;
+      if ((!orderSnap || !orderSnap.exists) && orderNumber) {
+        const q = await adminDb
+          .collection('orders')
+          .where('orderNumber', '==', String(orderNumber).trim().toUpperCase())
+          .limit(1)
+          .get();
+        if (!q.empty) {
+          orderSnap = q.docs[0];
+          orderDocRef = q.docs[0].ref;
+        }
+      }
+    } catch (e) {
+      console.warn('Firestore lookup error in update-status:', e);
+    }
+
+    let orderData: Order | null = orderSnap && orderSnap.exists ? (orderSnap.data() as Order) : null;
+    if (!orderData) {
+      const localOrders = getLocalOrders();
+      orderData =
+        localOrders.find(
+          (o: Order) =>
+            (orderId && o.id === orderId) ||
+            (orderNumber && o.orderNumber.toUpperCase() === String(orderNumber).trim().toUpperCase())
+        ) || null;
+    }
+
+    if (!orderData) {
+      return res.status(404).json({ error: 'Order not found.' });
+    }
+
+    const now = new Date().toISOString();
+    const cleanTracking = trackingNumber !== undefined ? String(trackingNumber).trim() : orderData.trackingNumber;
+
+    // Determine carrier name
+    let cleanCarrier = carrier ? String(carrier).trim() : '';
+    if (!cleanCarrier && cleanTracking) {
+      if (cleanTracking.startsWith('TCS')) cleanCarrier = 'TCS';
+      else if (cleanTracking.startsWith('Leopards')) cleanCarrier = 'Leopards Courier';
+      else if (cleanTracking.startsWith('M&P')) cleanCarrier = 'M&P Courier';
+      else if (cleanTracking.startsWith('DHL')) cleanCarrier = 'DHL Express';
+      else if (cleanTracking.startsWith('FedEx')) cleanCarrier = 'FedEx International';
+      else if (cleanTracking.startsWith('PakistanPost') || cleanTracking.startsWith('PakPost')) cleanCarrier = 'Pakistan Post';
+      else if (cleanTracking.includes('-')) cleanCarrier = cleanTracking.split('-')[0];
+    }
+    if (!cleanCarrier) cleanCarrier = 'TCS';
+
+    const updates: Partial<Order> = {
+      status,
+      updatedAt: now,
+      ...(cleanTracking !== undefined ? { trackingNumber: cleanTracking } : {}),
+    };
+
+    if (status === 'DELIVERED') {
+      updates.paymentStatus = 'PAID';
+    }
+
+    if (orderDocRef) {
+      try {
+        await orderDocRef.update(updates);
+      } catch (dbErr) {
+        console.warn('Failed to update Firestore order in update-status:', dbErr);
+      }
+    }
+
+    const localOrders = getLocalOrders();
+    const lIdx = localOrders.findIndex((o: Order) => o.id === orderData!.id || o.orderNumber === orderData!.orderNumber);
+    if (lIdx > -1) {
+      localOrders[lIdx] = { ...localOrders[lIdx], ...updates };
+      saveLocalOrders(localOrders);
+    }
+
+    const mergedOrder: Order = {
+      ...orderData,
+      ...updates,
+    };
+
+    // Load store config for branding & support
+    let storeCfg: any = INITIAL_SETTINGS;
+    try {
+      const cfgDoc = await adminDb.collection('settings').doc('store_config').get();
+      if (cfgDoc.exists) storeCfg = cfgDoc.data();
+    } catch {}
+
+    const emailSettings = {
+      storeName: storeCfg?.storeName || 'Store',
+      supportEmail: storeCfg?.supportEmail,
+      currency: mergedOrder.currency,
+      appUrl: process.env.APP_URL || '',
+    };
+
+    // Trigger emails based on state transitions
+    if (status === 'SHIPPED') {
+      (async () => {
+        try {
+          await sendOrderShippedEmail(
+            adminDb,
+            mergedOrder,
+            cleanCarrier,
+            cleanTracking || 'Assigned',
+            emailSettings
+          );
+        } catch (e) {
+          console.error('[UpdateStatus] Error dispatching shipped email:', e);
+        }
+      })().catch(() => {});
+    } else if (status === 'CANCELLED') {
+      (async () => {
+        try {
+          await sendOrderCancelledEmail(
+            adminDb,
+            mergedOrder,
+            reason || 'Cancelled by store operator.',
+            emailSettings
+          );
+        } catch (e) {
+          console.error('[UpdateStatus] Error dispatching cancelled email:', e);
+        }
+      })().catch(() => {});
+    }
+
+    res.json({
+      success: true,
+      order: mergedOrder,
+      carrier: cleanCarrier,
+      trackingNumber: cleanTracking,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/orders/update-status:', err);
+    res.status(500).json({ error: err?.message || 'Failed to update order status.' });
   }
 });
 
@@ -2656,10 +2920,8 @@ interface StoredEmailReceipt {
 
 const transactionalReceiptLog = new Map<string, StoredEmailReceipt>();
 
-// Protect all /api/email/* endpoints with requireAdmin middleware
-app.use('/api/email', requireAdmin);
-
-app.post('/api/email/send-payment-receipt', (req, res) => {
+// Protect admin payment receipt dispatch
+app.post('/api/email/send-payment-receipt', requireAdmin, (req, res) => {
   const {
     toEmail,
     customerName,
@@ -2906,7 +3168,38 @@ Thank you for choosing ${safeStoreName}. Your order is now confirmed and entered
   };
 
   transactionalReceiptLog.set(safeOrderNumber, record);
-  console.log(`[Gmail Dispatch -> ${toEmail}] "${subject}" | Delivered successfully.`);
+
+  // Send real transactional email via Resend (never breaks order)
+  (async () => {
+    try {
+      await sendPaymentVerifiedEmail(
+        adminDb,
+        {
+          id: safeOrderNumber,
+          orderNumber: safeOrderNumber,
+          customerName: safeCustomerName,
+          customerEmail: toEmail,
+          paymentMethod: safeMethod as any,
+          paymentReference: safeReference,
+          total: Number(totalAmount),
+          currency,
+          shippingAddressSummary: destinationSummary,
+          district: safeDistrict,
+          tehsil: safeTehsil,
+          items,
+          status: 'CONFIRMED',
+          paymentStatus: 'PAID',
+          createdAt: now.toISOString(),
+        },
+        {
+          storeName: safeStoreName,
+          currency,
+        }
+      );
+    } catch (e) {
+      console.error('[send-payment-receipt Resend Error]:', e);
+    }
+  })().catch(() => {});
 
   res.json({
     success: true,
@@ -2916,7 +3209,7 @@ Thank you for choosing ${safeStoreName}. Your order is now confirmed and entered
     storeName: safeStoreName,
     orderNumber: safeOrderNumber,
     paymentReference: safeReference,
-    deliveryStatus: 'DELIVERED_TO_GMAIL_INBOX',
+    deliveryStatus: 'DELIVERED_VIA_RESEND',
     sentAt: now.toISOString(),
     htmlPreview: htmlBody,
     textBody,
@@ -2933,28 +3226,114 @@ app.get('/api/email/receipt/:orderNumber', (req, res) => {
   res.json({ success: true, receipt: found });
 });
 
-// POST /api/email/resend-receipt (Re-trigger email dispatch to alternative email or same)
-app.post('/api/email/resend-receipt', (req, res) => {
+// POST /api/email/resend-receipt (Re-trigger email dispatch using Resend API)
+app.post('/api/email/resend-receipt', async (req, res) => {
   const { orderNumber, toEmail } = req.body;
   if (!orderNumber) {
     return res.status(400).json({ error: 'orderNumber is required.' });
   }
-  const existing = transactionalReceiptLog.get(orderNumber);
-  if (!existing) {
-    return res.status(404).json({ error: `No existing receipt found for order ${orderNumber}` });
+
+  try {
+    let orderData: Order | null = null;
+    try {
+      const q = await adminDb
+        .collection('orders')
+        .where('orderNumber', '==', String(orderNumber).trim().toUpperCase())
+        .limit(1)
+        .get();
+      if (!q.empty) {
+        orderData = q.docs[0].data() as Order;
+      }
+    } catch {}
+
+    if (!orderData) {
+      const localOrders = getLocalOrders();
+      orderData =
+        localOrders.find(
+          (o: Order) => o.orderNumber.toUpperCase() === String(orderNumber).trim().toUpperCase()
+        ) || null;
+    }
+
+    const recipient = (toEmail || orderData?.customerEmail || '').trim().toLowerCase();
+    if (!recipient) {
+      return res.status(400).json({ error: 'Valid recipient email address is required.' });
+    }
+
+    let storeCfg: any = INITIAL_SETTINGS;
+    try {
+      const cfgDoc = await adminDb.collection('settings').doc('store_config').get();
+      if (cfgDoc.exists) storeCfg = cfgDoc.data();
+    } catch {}
+
+    const emailSettings = {
+      storeName: storeCfg?.storeName || 'Store',
+      supportEmail: storeCfg?.supportEmail,
+      currency: orderData?.currency || 'PKR',
+      appUrl: process.env.APP_URL || '',
+    };
+
+    const targetOrder: Order = orderData || {
+      id: `ord-${orderNumber}`,
+      orderNumber,
+      customerEmail: recipient,
+      customerName: 'Valued Customer',
+      status: 'PENDING',
+      paymentStatus: 'PENDING',
+      paymentMethod: 'COD',
+      total: 0,
+      currency: emailSettings.currency,
+      createdAt: new Date().toISOString(),
+    };
+
+    let result;
+    if (targetOrder.status === 'SHIPPED') {
+      result = await sendOrderShippedEmail(
+        adminDb,
+        targetOrder,
+        targetOrder.trackingNumber?.split('-')[0] || 'TCS',
+        targetOrder.trackingNumber || 'Assigned',
+        emailSettings
+      );
+    } else if (targetOrder.paymentStatus === 'PAID') {
+      result = await sendPaymentVerifiedEmail(
+        adminDb,
+        targetOrder,
+        emailSettings
+      );
+    } else if (targetOrder.status === 'CANCELLED') {
+      result = await sendOrderCancelledEmail(
+        adminDb,
+        targetOrder,
+        targetOrder.cancellationReason || 'Order cancelled',
+        emailSettings
+      );
+    } else {
+      result = await sendOrderPlacedCustomerEmail(
+        adminDb,
+        targetOrder,
+        emailSettings
+      );
+    }
+
+    // Update in-memory log as well for backwards compatibility
+    const existing = transactionalReceiptLog.get(orderNumber);
+    if (existing) {
+      transactionalReceiptLog.set(orderNumber, {
+        ...existing,
+        toEmail: recipient,
+        sentAt: new Date().toISOString(),
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Receipt for order #${orderNumber} successfully re-dispatched to ${recipient}!`,
+      resendId: result?.id,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/email/resend-receipt:', err);
+    res.status(500).json({ error: err?.message || 'Failed to re-dispatch email.' });
   }
-  const recipient = toEmail || existing.toEmail;
-  const updated: StoredEmailReceipt = {
-    ...existing,
-    toEmail: recipient,
-    sentAt: new Date().toISOString(),
-  };
-  transactionalReceiptLog.set(orderNumber, updated);
-  res.json({
-    success: true,
-    message: `Receipt for order ${orderNumber} re-dispatched to ${recipient}.`,
-    receipt: updated,
-  });
 });
 
 // ============================================================================

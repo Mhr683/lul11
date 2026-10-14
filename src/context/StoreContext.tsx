@@ -1350,7 +1350,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       updatedAt: new Date().toISOString(),
     };
 
-    // Authoritative stock restoration on server when an order is cancelled
+    // Authoritative stock restoration and notification on server when an order is cancelled
     if (
       !wasAlreadyCancelledOrRefunded &&
       status === 'CANCELLED'
@@ -1371,6 +1371,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
       } catch (err) {
         console.warn('Server order cancellation error:', err);
+      }
+    } else {
+      // Synchronize with server to trigger server-side transactional emails (e.g., Order Shipped via Resend)
+      try {
+        const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+        await fetch('/api/orders/update-status', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            orderId: target.id,
+            orderNumber: target.orderNumber,
+            status,
+            trackingNumber: trackingNumber || target.trackingNumber,
+          }),
+        });
+      } catch (err) {
+        console.warn('Server order update status error:', err);
       }
     }
 

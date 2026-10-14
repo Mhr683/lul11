@@ -3896,9 +3896,9 @@ export const AdminDashboardView: React.FC<{
                               setViewingReceiptOrder(ord);
                             }}
                             className="px-2.5 py-1 bg-red-950 hover:bg-red-900 border border-red-700/60 text-red-200 text-[11px] font-medium cursor-pointer"
-                            title="View customer Gmail receipt"
+                            title="View customer email receipt"
                           >
-                            ✉️ Gmail Receipt
+                            ✉️ Email Receipt
                           </button>
                           {ord.status === 'QUOTE_REQUESTED' && (
                             <button
@@ -4063,7 +4063,7 @@ export const AdminDashboardView: React.FC<{
                         </div>
                         <div>
                           <h3 className="font-semibold text-[#141413]">
-                            Gmail Receipt Inspector — {viewingReceiptOrder.orderNumber}
+                            Email Receipt Inspector — {viewingReceiptOrder.orderNumber}
                           </h3>
                           <p className="text-[10px] text-[#575653]">
                             Sent to: {viewingReceiptOrder.customerEmail}
